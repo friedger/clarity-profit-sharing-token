@@ -6,4 +6,6 @@ Profit-sharing token is a non-fungible token that represents some value and can 
 
 ## Support
 
-[Hodlng](http://www.hodl.ng/) is supporting the development of this smart contract.
+[Hodlng](http://www.hodl.ng) is supporting the development of this smart contract.
+
+![Token](images/token.png)
