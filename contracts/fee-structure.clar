@@ -1,0 +1,2 @@
+
+(define-fungible-token hodlng)

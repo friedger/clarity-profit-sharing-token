@@ -4,12 +4,14 @@
 (define-map meta ((token (buff 32))) ((value uint) (remaining uint)))
 (define-map prev-owners ((token (buff 32)))
   ((owner  principal) (prev-token (buff 32)) (price uint)))
-(define-map offers ((token (buff 32))) ((buyer principal) (value uint) (price uint)))
+(define-map calls ((token (buff 32)) (index uint)) ((buyer principal) (value uint) (price uint)))
 
 ;; creates a new token
+;; tx-sender: seller/exporter
 (define-public (create-asset (hash (buff 32)) (value uint))
   (match (nft-mint? pst hash tx-sender)
     success  (begin
+      (contract-call? .fee-structure fixed-fee hash value)
       (ok (map-insert meta ((token hash)) ((value value) (remaining value))))
     )
     error (err error)
@@ -19,8 +21,17 @@
 ;; creates an offer for a token
 ;; referres to an existing token
 ;; tx-sender: buyer
-(define-public (ei-buying (hash uint) (price uint))
-  (ft-mint? usdt price tx-sender)
+(define-public (ei-buying (hash (buff 32))  (price uint))
+  (match (map-get? meta ((token hash)))
+    meta-token
+    (begin
+      (ft-mint? usdt price tx-sender)
+      (map-insert calls ((token hash) (index u0)) ((buyer tx-sender) (value (get value meta-token)) (price price)))
+      (contract-call? .fee-structure pay hash meta price (get value meta-token))
+      (ok true)
+    )
+    (err u1)
+  )
 )
 
 ;; executes an offer
@@ -29,6 +40,7 @@
 (define-public (sell (hash (buff 32)) (recipient principal) (price uint))
   (match (nft-transfer? pst hash tx-sender recipient)
     success (begin
+        (contract-call? .fee-structure fixed-fee hash ***)
         (map-insert prev-owners ((token hash)) ((owner tx-sender) (prev-token hash) (price price)))
         (ok success)
       )
@@ -41,18 +53,15 @@
 ;; referres to an existing token
 ;; tx-sender: re-buyer
 (define-public (ei-part-buying (hash uint) (value uint) (price uint))
-  (ok true)
-)
-
-(define-private (share-profit (prev-owner {owner: principal, prev-token: (buff 32), price: uint})
-                  (token-meta {value: uint, remaining: uint})
-                  (value uint) (price uint))
-  (let ((prev-price (get price prev-owner)))
-    (let ((profit (- price (/ (* prev-price value) (get value token-meta)))))
-      (let ((shared-profit (/ profit u2 )))
-        (stx-transfer? shared-profit tx-sender (get owner prev-owner))
-      )
+   (match (map-get? meta ((token hash)))
+    meta-token
+    (begin
+      (ft-mint? usdt price tx-sender)
+      (map-insert calls ((token hash) (index u1)) ((buyer tx-sender) (value value) (price price)))
+      (contract-call? .fee-structure pay hash meta price value)
+      (ok true)
     )
+    (err u1)
   )
 )
 
@@ -66,9 +75,9 @@
     (if (>= (get remaining token-meta) value)
       (begin
         (create-asset new-hash value)
+        (contract-call? .fee-structure fixed-fee hash value)
         (sell new-hash recipient price)
         (map-set meta ((token hash)) ((value (get value token-meta)) (remaining (- (get remaining token-meta) value))))
-        (share-profit prev-owner token-meta value price)
         (ok true)
       )
       (err u2)
