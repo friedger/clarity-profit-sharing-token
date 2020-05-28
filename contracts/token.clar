@@ -1,86 +1,143 @@
+;; Profit Sharing Tokens (pst) represent tokens with a dividable value
+;; Owners of a pst can sell the whole or parts of a pst
+;; A pst is identified by a hash (that is calculated from some meta data off-chain)
+;;
+;; `pst` tokens are sold using `usdt` tokens.
+;; `usdt` tokens represent the amount of money that was made through sales of `pst` tokens
+
 (define-non-fungible-token pst (buff 32))
 (define-fungible-token usdt)
 
+(define-constant err-token-exists u20)
+(define-constant err-token-does-not-exist u21)
+(define-constant err-token-sold u22)
+(define-constant err-token-not-sold u23)
+(define-constant err-token-called u24)
+(define-constant err-token-not-called u25)
+(define-constant err-not-enough-value u26)
+(define-constant err-fee-payment u27)
+(define-constant err-payment u28)
+
+;; storage
+;; meta contains the initial value parts of a pst and the remaining value parts
 (define-map meta ((token (buff 32))) ((value uint) (remaining uint)))
+;; prev-owners contains the owner of the original pst with the reference to the original hash and price
 (define-map prev-owners ((token (buff 32)))
   ((owner  principal) (prev-token (buff 32)) (price uint)))
+;; calls contains details about interests in buying a pst
+;; index 0 always defines the sale of the whole pst
 (define-map calls ((token (buff 32)) (index uint)) ((buyer principal) (value uint) (price uint)))
+(define-map next-call-index ((token (buff 32))) ((index uint)))
 
-;; creates a new token
+;; Creates a new token representing a value that can be divided into `value` parts.
+;; Creating this token comes with a costs defined in the fee-structure contract
 ;; tx-sender: seller/exporter
+;; Returns Response<bool, uint>
 (define-public (create-asset (hash (buff 32)) (value uint))
   (match (nft-mint? pst hash tx-sender)
     success  (begin
-      (contract-call? .fee-structure fixed-fee hash value)
-      (ok (map-insert meta ((token hash)) ((value value) (remaining value))))
+      (unwrap! (contract-call? .fee-structure pay-fixed-fee) (err err-fee-payment))
+      (if (map-insert meta ((token hash)) ((value value) (remaining value)))
+        (ok true)
+        (err err-token-exists)
+      )
     )
     error (err error)
   )
 )
 
-;; creates an offer for a token
+;; Express interest of buying, creates a call for a whole token
 ;; referres to an existing token
 ;; tx-sender: buyer
-(define-public (ei-buying (hash (buff 32))  (price uint))
+;; Returns Response<bool, uint>
+(define-public (ei-buying (hash (buff 32)) (price uint))
   (match (map-get? meta ((token hash)))
     meta-token
     (begin
-      (ft-mint? usdt price tx-sender)
-      (map-insert calls ((token hash) (index u0)) ((buyer tx-sender) (value (get value meta-token)) (price price)))
-      (contract-call? .fee-structure pay hash meta price (get value meta-token))
-      (ok true)
+      (unwrap! (contract-call? .fee-structure pay-variable-fee price (get value meta-token) (get value meta-token)) (err err-fee-payment))
+      (unwrap! (ft-mint? usdt price tx-sender) (err err-payment))
+      (if (map-insert calls ((token hash) (index u0)) ((buyer tx-sender) (value (get value meta-token)) (price price)))
+        (ok true)
+        (err err-token-called)
+      )
     )
-    (err u1)
+    (err err-token-does-not-exist)
   )
 )
 
-;; executes an offer
-;; referres to an existing offer
+;; Executes a call for a whole token
+;; referres to an existing call
 ;; tx-sender: seller
-(define-public (sell (hash (buff 32)) (recipient principal) (price uint))
-  (match (nft-transfer? pst hash tx-sender recipient)
+;; Returns Response<bool, uint>
+
+(define-private (sell-for (hash (buff 32)) (buyer principal) (price uint))
+  (match (nft-transfer? pst hash tx-sender buyer)
     success (begin
-        (contract-call? .fee-structure fixed-fee hash ***)
-        (map-insert prev-owners ((token hash)) ((owner tx-sender) (prev-token hash) (price price)))
-        (ok success)
+        (contract-call? .fee-structure pay-fixed-fee)
+        (if (map-insert prev-owners ((token hash)) ((owner tx-sender) (prev-token hash) (price price)))
+          (ok true)
+          (err err-token-sold)
+        )
       )
     error (err error)
   )
 )
 
-
-;; creates an offer for a part of a token
-;; referres to an existing token
-;; tx-sender: re-buyer
-(define-public (ei-part-buying (hash uint) (value uint) (price uint))
-   (match (map-get? meta ((token hash)))
-    meta-token
-    (begin
-      (ft-mint? usdt price tx-sender)
-      (map-insert calls ((token hash) (index u1)) ((buyer tx-sender) (value value) (price price)))
-      (contract-call? .fee-structure pay hash meta price value)
-      (ok true)
-    )
-    (err u1)
+;; pst can only be sold after a expressing intersted in buying
+(define-public (sell (hash (buff 32)))
+  (match (map-get? calls ((token hash) (index u0)))
+    call
+      (sell-for hash (get buyer call) (get price call))
+    (err err-token-not-called)
   )
 )
 
-;; creates a new token with a part of the inital token
+;; Express interest of buying, creates a call for a part of a token
+;; referres to an existing token
+;; tx-sender: re-buyer
+;; Returns Response<bool, uint>
+(define-public (ei-part-buying (hash (buff 32)) (value uint) (price uint))
+   (match (map-get? meta ((token hash)))
+    meta-token
+      (begin
+        (contract-call? .fee-structure pay-variable-fee price value (get value meta-token))
+        (ft-mint? usdt price tx-sender)
+        (if (map-insert calls ((token hash) (index u1)) ((buyer tx-sender) (value value) (price price)))
+          (ok true)
+          (err err-token-called)
+        )
+
+      )
+    (err err-token-does-not-exist)
+  )
+)
+
+;; Executes a call for parts of a token
+;; Creates a new token with a part of the inital token
+;; the remaining value parts of the initial token is updates as well
 ;; tx-sender: first token buyer
-(define-public (re-sell (hash (buff 32)) (value uint)  (value-as-buff (buff 20)) (recipient principal) (price uint))
+;; Returns Response<bool, uint>
+(define-private (re-sell-at (hash (buff 32)) (value-as-buff (buff 20)) (recipient principal) (value uint) (price uint))
   (let ((new-hash (sha512/256 (concat hash value-as-buff)))
-    (token-meta (unwrap! (map-get? meta ((token hash))) (err u1)))
-    (prev-owner (unwrap! (map-get? prev-owners ((token hash))) (err u2)))
+    (token-meta (unwrap! (map-get? meta ((token hash))) (err err-token-does-not-exist)))
+    (prev-owner (unwrap! (map-get? prev-owners ((token hash))) (err err-token-not-sold)))
     )
     (if (>= (get remaining token-meta) value)
       (begin
-        (create-asset new-hash value)
-        (contract-call? .fee-structure fixed-fee hash value)
-        (sell new-hash recipient price)
-        (map-set meta ((token hash)) ((value (get value token-meta)) (remaining (- (get remaining token-meta) value))))
-        (ok true)
+        (unwrap! (create-asset new-hash value) (err err-token-exists))
+        (unwrap! (sell-for new-hash recipient price) (err err-payment))
+        (if (map-set meta ((token hash)) ((value (get value token-meta)) (remaining (- (get remaining token-meta) value))))
+          (ok true)
+          (err err-token-exists)
+        )
       )
-      (err u2)
+      (err err-not-enough-value)
     )
+  )
+)
+(define-public (re-sell (hash (buff 32)) (value-as-buff (buff 20)))
+  (match (map-get? calls ((token hash) (index u1)))
+    call (re-sell-at hash value-as-buff (get buyer call) (get value call) (get price call))
+    (err err-token-not-called)
   )
 )
