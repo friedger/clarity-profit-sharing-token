@@ -169,6 +169,10 @@
   (ft-get-balance usdt principal)
 )
 
+(define-read-only (get-owner (hash (buff 32)))
+  (nft-get-owner? pst hash)
+)
+
 ;; calculate hash from previous token and part value
 ;; currently there is no way in Clarity to convert uint to buff
 (define-read-only (calculate-new-hash (hash (buff 32)) (value-as-buff (buff 20)))

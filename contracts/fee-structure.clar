@@ -1,19 +1,19 @@
-
 ;; `fee-structure` defines the fee structure of the `token` contract functions.
 ;;  Fees are paid in `holdng` tokens and are sold by the platform maintainers.
 (define-fungible-token hodlng)
 
 (define-constant err-cannot-sell u10)
 
+(define-map roles ((principal principal)) ((maintainer bool)))
+
 ;; Sell 10000 hodlng tokens to sender
 ;; `sell` function is part of the business model
-;; and will be protected by a check for the tx-sender
-;; then it can only be used by the platform maintainer
-;; For simplicity of testing, all users are maintainers
+;; and is protected by a check for the tx-sender.
+;; It can only be used by the platform maintainer
 
 ;; Returns true if the tx-sender is maintainer of the platform
 (define-private (can-sender-sell)
-  true
+  (is-some (map-get? roles {principal: tx-sender}))
 )
 
 ;; Returns Response<bool uint>
@@ -44,9 +44,10 @@
   )
 )
 
-
 ;; check balances
 ;; Rreturns uint
 (define-read-only (get-balance)
   (ft-get-balance hodlng (as-contract tx-sender))
 )
+
+(begin (map-set roles {principal: 'S1G2081040G2081040G2081040G208105NK8PE5 } {maintainer: true}))

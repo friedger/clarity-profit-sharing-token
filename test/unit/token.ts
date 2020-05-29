@@ -10,6 +10,7 @@ import { FeeStructureClient } from "../../src/client/fee-structure";
 const creator = "S1G2081040G2081040G2081040G208105NK8PE5";
 const buyerAndReseller = "S02J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKPVKG2CE";
 const partBuyer = "ST2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQYAC0RQ";
+
 class TokenProvider extends Client {
   constructor(provider: Provider) {
     super(
@@ -79,6 +80,26 @@ class TokenProvider extends Client {
       method: {
         name: "get-balance",
         args: [`'${address}`],
+      },
+    });
+    return this.submitQuery(q);
+  }
+
+  async getOwner(hash: String) {
+    const q = this.createQuery({
+      method: {
+        name: "get-owner",
+        args: [`"${hash}"`],
+      },
+    });
+    return this.submitQuery(q);
+  }
+
+  async newHash(hash: String, valueAsBuf: String) {
+    const q = this.createQuery({
+      method: {
+        name: "calculate-new-hash",
+        args: [`"${hash}"`, `"${valueAsBuf}"`],
       },
     });
     return this.submitQuery(q);
@@ -164,6 +185,21 @@ describe("token contract test suite", () => {
       );
       assert(response.result === "u575", JSON.stringify(response)); // 100 + 200 + 100 + 75 + 100
     });
+
+    it("should transfer token", async () => {
+      const originalTokenOwner = await client.getOwner(tokenHash);
+      const partTokenHash = await client.newHash(tokenHash, "50");
+
+      assert(
+        partTokenHash.result ===
+          `0x1059e418c1173e1493a07a98a7c2597cd2de745d16fccff52bf590aac27fc532`,
+        JSON.stringify(partTokenHash)
+      );
+      assert(originalTokenOwner.result === `(some ${buyerAndReseller})`);
+
+      // TODO test partTokenOwner, unable to pass a hex encoded buffer to the VM :-/
+    });
+
     after(async () => {
       await provider.close();
     });
