@@ -7,6 +7,9 @@ import {
 } from "@blockstack/clarity";
 import { FeeStructureClient } from "../../src/client/fee-structure";
 
+const creator = "S1G2081040G2081040G2081040G208105NK8PE5";
+const buyerAndReseller = "S02J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKPVKG2CE";
+const partBuyer = "ST2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQYAC0RQ";
 class TokenProvider extends Client {
   constructor(provider: Provider) {
     super(
@@ -23,7 +26,7 @@ class TokenProvider extends Client {
         args: [`"${hash}"`, `u${value}`],
       },
     });
-    tx.sign("S1G2081040G2081040G2081040G208105NK8PE5");
+    tx.sign(creator);
     return this.submitTransaction(tx);
   }
 
@@ -34,7 +37,7 @@ class TokenProvider extends Client {
         args: [`"${hash}"`, `u${price}`],
       },
     });
-    tx.sign("S02J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKPVKG2CE");
+    tx.sign(buyerAndReseller);
     return this.submitTransaction(tx);
   }
 
@@ -45,7 +48,7 @@ class TokenProvider extends Client {
         args: [`"${hash}"`],
       },
     });
-    tx.sign("S1G2081040G2081040G2081040G208105NK8PE5");
+    tx.sign(creator);
     return this.submitTransaction(tx);
   }
 
@@ -56,7 +59,7 @@ class TokenProvider extends Client {
         args: [`"${hash}"`, `u${value}`, `u${price}`],
       },
     });
-    tx.sign("ST2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQYAC0RQ");
+    tx.sign(partBuyer);
     return this.submitTransaction(tx);
   }
 
@@ -67,8 +70,18 @@ class TokenProvider extends Client {
         args: [`"${hash}"`, `"${valueAsBuf}"`],
       },
     });
-    tx.sign("S02J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKPVKG2CE");
+    tx.sign(buyerAndReseller);
     return this.submitTransaction(tx);
+  }
+
+  async getBalance(address: String) {
+    const q = this.createQuery({
+      method: {
+        name: "get-balance",
+        args: [`'${address}`],
+      },
+    });
+    return this.submitQuery(q);
   }
 }
 
@@ -93,7 +106,7 @@ describe("token contract test suite", () => {
     });
   });
 
-  describe("basic tests", () => {
+  describe("flow of sale and re-sale", () => {
     const tokenHash = "12345678901234567890123456789012";
 
     before(async () => {
@@ -102,15 +115,9 @@ describe("token contract test suite", () => {
       feeStructureClient = new FeeStructureClient(provider);
       await feeStructureClient.deployContract();
       await client.deployContract();
-      await feeStructureClient.sellTo(
-        "S1G2081040G2081040G2081040G208105NK8PE5"
-      );
-      await feeStructureClient.sellTo(
-        "S02J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKPVKG2CE"
-      );
-      await feeStructureClient.sellTo(
-        "ST2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQYAC0RQ"
-      );
+      await feeStructureClient.sellTo(creator);
+      await feeStructureClient.sellTo(buyerAndReseller);
+      await feeStructureClient.sellTo(partBuyer);
     });
 
     it("should create an asset", async () => {
@@ -129,7 +136,7 @@ describe("token contract test suite", () => {
     });
 
     it("should create a call for a value part", async () => {
-      const response = await client.eiPartBuying(tokenHash, 50, 1000);
+      const response = await client.eiPartBuying(tokenHash, 50, 1500);
       assert(response.success, `failed with ${JSON.stringify(response)}`);
     });
 
@@ -138,6 +145,25 @@ describe("token contract test suite", () => {
       assert(response.success, `failed with ${JSON.stringify(response)}`);
     });
 
+    it("should send profit to original owner", async () => {
+      const creatorResponse = await client.getBalance(creator);
+      var buyerAndResellerResponse = await client.getBalance(buyerAndReseller);
+      var partBuyerResponse = await client.getBalance(partBuyer);
+      var response = await feeStructureClient.getBalance();
+      assert(
+        creatorResponse.result === "u2250",
+        JSON.stringify(creatorResponse)
+      );
+      assert(
+        buyerAndResellerResponse.result === "u1250",
+        JSON.stringify(buyerAndResellerResponse)
+      );
+      assert(
+        partBuyerResponse.result === "u0",
+        JSON.stringify(partBuyerResponse)
+      );
+      assert(response.result === "u575", JSON.stringify(response)); // 100 + 200 + 100 + 75 + 100
+    });
     after(async () => {
       await provider.close();
     });

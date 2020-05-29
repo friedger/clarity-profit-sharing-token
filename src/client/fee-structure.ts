@@ -9,7 +9,7 @@ export class FeeStructureClient extends Client {
     );
   }
 
-  sellTo(address: String) {
+  async sellTo(address: String) {
     const tx = this.createTransaction({
       method: {
         name: "sell",
@@ -18,5 +18,15 @@ export class FeeStructureClient extends Client {
     });
     tx.sign("S1G2081040G2081040G2081040G208105NK8PE5");
     return this.submitTransaction(tx);
+  }
+
+  async getBalance() {
+    const q = this.createQuery({
+      method: {
+        name: "get-balance",
+        args: [],
+      },
+    });
+    return this.submitQuery(q);
   }
 }

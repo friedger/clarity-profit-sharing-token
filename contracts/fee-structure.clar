@@ -28,7 +28,7 @@
 ;;
 ;; Returns Response<bool uint>
 (define-public (pay-fixed-fee)
-  (ft-transfer? hodlng u1000 tx-sender (as-contract tx-sender))
+  (ft-transfer? hodlng u100 tx-sender (as-contract tx-sender))
 )
 
 ;; Pay a variable fee depending on the price of the token and the value that was bought.
@@ -44,3 +44,9 @@
   )
 )
 
+
+;; check balances
+;; Rreturns uint
+(define-read-only (get-balance)
+  (ft-get-balance hodlng (as-contract tx-sender))
+)
